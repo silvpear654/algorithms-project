@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>최소제곱 세 풀이 비교 보고서</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]})"></script>
+<style>
+  @page { size: A4; margin: 18mm 17mm 18mm 17mm; }
+  :root { --ink:#1b1f24; --mute:#5b6470; --line:#d7dce2; --accent:#1f5fbf; --soft:#f3f6fa; }
+  body { font-family: "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; color:var(--ink);
+         font-size: 10.3pt; line-height: 1.62; background:#fff; margin:0; }
+  h1 { font-size: 20pt; margin: 0 0 6px; line-height:1.3; }
+  h2 { font-size: 14pt; color: var(--accent); border-bottom: 1.5px solid var(--accent);
+       padding-bottom: 3px; margin: 22px 0 10px; break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 16px 0 6px; break-after: avoid; }
+  p { margin: 6px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 10px; font-size: 9pt; break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 3px 6px; text-align: center; }
+  th { background: var(--soft); }
+  td.l, th.l { text-align: left; }
+  figure { margin: 10px 0; text-align: center; break-inside: avoid; }
+  figure img { max-width: 100%; }
+  figcaption { font-size: 8.8pt; color: var(--mute); margin-top: 3px; }
+  .box { background: var(--soft); border-left: 4px solid var(--accent); padding: 8px 12px; margin: 10px 0; break-inside: avoid; }
+  .warn { border-left-color: #c77700; background: #fdf6ea; }
+  code { font-family: "SF Mono", Menlo, monospace; font-size: 8.8pt; background: #eef1f5; padding: 0 3px; border-radius: 3px; }
+  pre { font-family: "SF Mono", Menlo, monospace; font-size: 8.4pt; background: #f5f7fa; border: 1px solid var(--line);
+        padding: 8px 10px; white-space: pre-wrap; break-inside: avoid; line-height: 1.45; }
+  .cover { height: 245mm; display: flex; flex-direction: column; justify-content: center; }
+  .cover .sub { font-size: 12pt; color: var(--mute); margin-bottom: 36px; }
+  .cover table { width: 75%; font-size: 10.5pt; }
+  .cover td { text-align: left; padding: 6px 10px; }
+  .cover td:first-child { width: 28%; background: var(--soft); font-weight: 600; }
+  .pb { break-before: page; }
+  ul, ol { margin: 4px 0 6px; padding-left: 22px; }
+  li { margin: 2px 0; }
+  .katex-display { margin: 6px 0; }
+  .small { font-size: 8.8pt; color: var(--mute); }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ 표지 -->
+<section class="cover">
+  <h1>최소제곱 선형회귀를 푸는 세 가지 방법 비교</h1>
+  <div class="sub">정규방정식 · 경사하강법(GD) · 켤레기울기법(CG) — 고급알고리즘 개인 프로젝트 최종 보고서</div>
+  <table>
+    <tr><td>GitHub</td><td><a href="https://github.com/silvpear654/algorithms-project" style="color:var(--accent)"><b>https://github.com/silvpear654/algorithms-project</b></a></td></tr>
+    <tr><td>학번</td><td>2026193021</td></tr>
+    <tr><td>이름</td><td>김은배</td></tr>
+    <tr><td>환경</td><td>Python 3.14.4 · NumPy 2.4.5 (BLAS: Apple Accelerate) · macOS 26.7 · Apple M5 (10코어, 32 GB)</td></tr>
+  </table>
+  <div class="box" style="margin-top:36px; width:75%">
+    <b>요약.</b> 같은 최소제곱 문제를 세 방법으로 풀어, 차원 $d$·조건수 $\kappa$·데이터 수 $n$을 바꿔 가며
+    시간·반복 수·추가 메모리·정확도를 쟀다. 반복 수는 이론과 잘 맞았다 (GD는 $\kappa$에 거의 비례, CG는 $\sqrt{\kappa}$보다 완만).
+    반면 <b>시간은 연산량 이론과 크게 어긋났다</b>: 연산량만 보면 $d\approx 170$에서 CG가 정규방정식을 이겨야 하지만,
+    실제 교차점은 $d\approx 4700$이었다. 원인은 행렬곱(GEMM)과 행렬-벡터곱(GEMV)의 처리량 차이(약 50배)와 캐시이며,
+    처리량을 반영한 보정 모델로 교차점을 설명할 수 있었다.
+  </div>
+</section>
+
+<!-- ============================================================ 1 -->
+<h2 class="pb">1. 주제와 문제</h2>
+<p>선형회귀는 머신러닝의 가장 기본 문제이고 손실이 2차식이라 이론 분석이 깔끔하다. 같은 문제를
+<b>한 번에 정확히 푸는 직접법</b>(정규방정식)과 <b>조금씩 다가가는 반복법</b>(GD, CG)으로 풀 수 있어서,
+"언제 무엇을 써야 하는가"를 이론과 실측으로 함께 따져 볼 수 있다.</p>
+<div class="box"><b>풀려는 문제.</b> 데이터 $n$개, 특성 $d$개인 최소제곱 선형회귀의 최적 가중치를 구하는 세 방식은
+문제 크기와 조건수에 따라 시간, 반복 횟수, 메모리가 어떻게 달라지는가?</div>
+<p>설정: $X\in\mathbb{R}^{n\times d}$, $y\in\mathbb{R}^n$, $\theta\in\mathbb{R}^d$.</p>
+$$f(\theta)=\frac{1}{2n}\lVert X\theta-y\rVert^2$$
+$$\nabla f(\theta)=\frac{1}{n}X^\top(X\theta-y)$$
+$$H=\frac{1}{n}X^\top X$$
+<p>최적해 $\theta^*$는 $\nabla f(\theta^*)=0$, 즉 $X^\top X\theta^*=X^\top y$를 만족한다. 이를 대입하면</p>
+$$\nabla f(\theta)=\frac{1}{n}\left(X^\top X\theta - X^\top X\theta^*\right)$$
+$$\nabla f(\theta)=H(\theta-\theta^*)$$
+<p>조건수 $\kappa=\lambda_{\max}(X^\top X)/\lambda_{\min}(X^\top X)$는 손실 등고선이 얼마나 길쭉한지를 나타내며,
+반복법의 속도를 결정한다.</p>
+<p class="small">처음에는 세 번째 방법으로 뉴턴법을 생각했지만, 손실이 2차식이면 뉴턴 한 걸음
+$\theta_1=\theta_0-H^{-1}\nabla f(\theta_0)=\theta_0-(\theta_0-\theta^*)=\theta^*$로 바로 정규방정식의 해가 되어 사실상 같은 방법이므로 CG로 바꿨다.</p>
+
+<!-- ============================================================ 2 -->
+<h2>2. 세 방법과 이론 예측</h2>
+<h3>① 정규방정식 (직접법)</h3>
+$$X^\top X\,\theta=X^\top y \;\Rightarrow\; \theta^*=(X^\top X)^{-1}X^\top y$$
+<p>역행렬은 만들지 않고 <code>np.linalg.solve</code>(LU 분해)로 푼다.</p>
+<table>
+<tr><th>단계</th><th>연산량 (flop)</th><th>추가 메모리</th></tr>
+<tr><td>$A=X^\top X$</td><td>$\approx 2nd^2$ (곱셈·덧셈)</td><td>$d^2$</td></tr>
+<tr><td>$b=X^\top y$</td><td>$\approx 2nd$</td><td>$d$</td></tr>
+<tr><td>LU 분해·풀기</td><td>$\approx \tfrac{2}{3}d^3$</td><td>$d^2$</td></tr>
+<tr><th>합계</th><th>$O(nd^2+d^3)$, $\kappa$와 무관</th><th>$O(d^2)$</th></tr>
+</table>
+
+<h3>② 경사하강법 (GD)</h3>
+$$\theta_{k+1}=\theta_k-\eta\nabla f(\theta_k)$$
+<p>오차 $e_k=\theta_k-\theta^*$에 대해 $\nabla f(\theta_k)=He_k$이므로</p>
+$$e_{k+1}=e_k-\eta He_k$$
+$$e_{k+1}=(I-\eta H)\,e_k$$
+<p>고유방향별로 $|1-\eta\lambda_i|$배씩 줄어든다. 따라서</p>
+<ul>
+<li>수렴 조건: 모든 $i$에서 $|1-\eta\lambda_i|<1$ ⇔ $0<\eta<2/\lambda_{\max}$</li>
+<li>$\eta=1/L$ ($L=\lambda_{\max}$)이면 가장 느린 방향의 비율 $\rho=1-1/\kappa$</li>
+<li>$\rho^K\le\varepsilon$에서 $K\ln\rho \le \ln\varepsilon$, $\ln\rho\approx-1/\kappa$이므로 $K\approx\kappa\ln(1/\varepsilon)$</li>
+<li>반복 1번: $X\theta$, $X^\top(\cdot)$ 두 번의 행렬-벡터곱 $\approx 4nd$ flop</li>
+</ul>
+<p>구현에서는 $L$을 거듭제곱법 100회로 추정한다 ($d^3$짜리 고윳값 분해를 피하기 위함). 이 시간도 GD 시간에 포함했다.</p>
+
+<h3>③ 켤레기울기법 (CG)</h3>
+<p>$A=X^\top X$, $b=X^\top y$, $r=b-A\theta$, $p_0=r_0$로 두고</p>
+$$\alpha_k=\frac{r_k^\top r_k}{p_k^\top Ap_k}$$
+$$\theta_{k+1}=\theta_k+\alpha_kp_k$$
+$$r_{k+1}=r_k-\alpha_kAp_k$$
+$$\beta_k=\frac{r_{k+1}^\top r_{k+1}}{r_k^\top r_k}$$
+$$p_{k+1}=r_{k+1}+\beta_kp_k$$
+<p>$\alpha_k$는 $\varphi(\alpha)=g(\theta_k+\alpha p_k)$ ($g(\theta)=\tfrac12\theta^\top A\theta-b^\top\theta$)를 미분해 0으로 두어 얻고,
+$\beta_k$는 $p_{k+1}^\top Ap_k=0$ (A-켤레) 조건과 잔차 직교성 $r_{k+1}^\top r_k=0$으로 얻는다.
+방향들이 서로 A-켤레라서 한 번 줄인 방향의 오차를 다시 망가뜨리지 않는다.</p>
+<ul>
+<li>정확한 산술이면 최대 $d$번 만에 정확한 해</li>
+<li>오차 상한: $\lVert e_k\rVert_A\le 2\left(\frac{\sqrt\kappa-1}{\sqrt\kappa+1}\right)^k\lVert e_0\rVert_A$ → $K\approx\frac{\sqrt\kappa}{2}\ln\frac{2}{\varepsilon}$</li>
+<li>$Ap=X^\top(Xp)$로 계산해 $A$를 만들지 않음 → 반복 1번 $\approx 4nd$ flop, 추가 메모리는 벡터 몇 개</li>
+</ul>
+
+<h3>가설 (중간 제출 때 세운 것)</h3>
+<table>
+<tr><th>상황</th><th class="l">예측</th></tr>
+<tr><td>$d$ 작음</td><td class="l">정규방정식이 가장 빠름</td></tr>
+<tr><td>$d$ 큼</td><td class="l">$d^3$, $nd^2$ 항 때문에 반복법이 역전. 교차점 ($n\gg d$): $2nd^2\approx 4ndK$ ⇒ $d\approx 2K$. $\kappa=100$에서 CG $K\approx 84$ (실측) → $d\approx 170$</td></tr>
+<tr><td>$\kappa$ 큼</td><td class="l">GD 반복 수 $\propto\kappa$, CG $\propto\sqrt\kappa$, 정규방정식 불변</td></tr>
+<tr><td>메모리</td><td class="l">정규방정식만 $d^2$로 증가, 반복법은 $O(d)$</td></tr>
+<tr><td>$n$</td><td class="l">세 방법 모두 시간이 $n$에 선형</td></tr>
+</table>
+
+<!-- ============================================================ 3 -->
+<h2>3. 실험 방법</h2>
+<h3>데이터</h3>
+<p>$X=U\,\mathrm{diag}(s)\,V^\top$ ($U$: $n\times d$ 정규직교 열, $V$: $d\times d$ 직교행렬, 둘 다 가우스 행렬의 QR로 생성).
+특이값 $s_i=\sqrt{\lambda_i}$, $\lambda_i$는 $1\sim\kappa$ 로그 간격. 그러면 $X^\top X=V\,\mathrm{diag}(s^2)V^\top$이므로
+$\kappa(X^\top X)$가 정확히 원하는 값이 된다 (검증: <code>python src/data.py</code> → 1000.0000).
+$y=X\theta_{\text{true}}+0.01\cdot\mathcal N(0,1)$.</p>
+
+<h3>측정 기준</h3>
+<table>
+<tr><th>기준</th><th>도구</th><th class="l">비고</th></tr>
+<tr><td>실행 시간</td><td><code>time.perf_counter</code></td><td class="l">데이터 생성 제외. tracemalloc을 끈 상태로 따로 측정</td></tr>
+<tr><td>반복 수</td><td>함수 반환값 $k$</td><td class="l">정규방정식은 1</td></tr>
+<tr><td>추가 메모리</td><td><code>tracemalloc</code> 최대값</td><td class="l">시드 0에서 한 번. 반복법은 최대 메모리가 반복 수와 무관하므로 50회로 잘라 측정. LAPACK 내부 작업 공간은 잡히지 않음 (5.5절)</td></tr>
+<tr><td>정확도</td><td>상대 잔차 $\lVert X^\top y-X^\top X\theta\rVert/\lVert X^\top y\rVert$</td><td class="l">셋 모두 $\le10^{-8}$일 때만 공정한 비교로 봄 (모든 조건에서 만족, 4장 참고)</td></tr>
+</table>
+<p><b>공정성:</b> 같은 언어(Python)·같은 기기에서 순차 실행, 시드마다 데이터를 한 번 만들어 세 방법에 똑같이 넣음,
+GD와 CG는 같은 시작점 $\theta_0=0$과 같은 정지 기준. 조건마다 시드 0~4 (확장 실험 5는 0~2)의 평균 ± 표준편차.</p>
+
+<h3>실험 목록</h3>
+<table>
+<tr><th>실험</th><th>고정</th><th>변화</th><th class="l">확인할 것</th></tr>
+<tr><td>1. 차원</td><td>$n=10^4,\ \kappa=100$</td><td>$d=50\sim2000$ (6단계)</td><td class="l">시간 교차점, 메모리 $d^2$ 대 $d$</td></tr>
+<tr><td>2. 조건수</td><td>$n=5000,\ d=200$</td><td>$\kappa=10^1\sim10^5$</td><td class="l">반복 수 로그-로그 기울기</td></tr>
+<tr><td>3. 데이터 수</td><td>$d=200,\ \kappa=100$</td><td>$n=10^3\sim10^5$</td><td class="l">시간이 $n$에 선형인지</td></tr>
+<tr><td>4. 학습률</td><td>$n=5000,\ d=200,\ \kappa=10^3$</td><td>$\eta=0.5,1,1.9,2.1\,/L$</td><td class="l">GD 발산 경계 $2/L$</td></tr>
+<tr><td>5. 확장</td><td>$n=10^4,\ \kappa=100$</td><td>$d=2000\sim8000$</td><td class="l">실험 1 범위에서 교차가 안 나와 추가 (GD 제외)</td></tr>
+</table>
+<p>반복 상한: CG $10d$, GD $10^6$ (실험 2는 $3\times10^6$). 모든 조건에서 상한에 걸리지 않고 정지 기준으로 멈췄다.</p>
+
+<!-- ============================================================ 4 -->
+<h2 class="pb">4. 결과</h2>
+<p>모든 조건에서 정규방정식의 상대 잔차는 $2\times10^{-15}\sim6\times10^{-15}$, GD·CG는 $\le 1.0\times10^{-8}$이었다
+(실험 4의 $\eta=2.1/L$ 제외). 즉 아래 시간 비교는 모두 같은 품질 기준을 통과한 결과끼리의 비교다.
+전체 수치는 <code>results/summary.md</code>와 <code>results/exp*.csv</code>에 있다.</p>
+
+<h3>4.1 실험 1·5: 차원 $d$ — 시간 교차점과 메모리</h3>
+<table>
+<tr><th>$d$</th><th>정규방정식 [ms]</th><th>GD [ms] (반복)</th><th>CG [ms] (반복)</th><th>NE/CG 시간비</th><th>tracemalloc NE / CG</th></tr>
+<tr><td>50</td><td>0.17</td><td>50 (1273)</td><td>2.0 (52)</td><td>0.09</td><td>22 KB / 84 KB</td></tr>
+<tr><td>200</td><td>1.7</td><td>282 (1262)</td><td>16 (76)</td><td>0.10</td><td>324 KB / 91 KB</td></tr>
+<tr><td>500</td><td>6.5</td><td>1357 (1245)</td><td>81 (82)</td><td>0.08</td><td>2.0 MB / 105 KB</td></tr>
+<tr><td>1000</td><td>24</td><td>2691 (1245)</td><td>166 (83)</td><td>0.14</td><td>8.0 MB / 129 KB</td></tr>
+<tr><td>2000</td><td>122</td><td>5359 (1252)</td><td>335 (84)</td><td>0.36</td><td>32 MB / 177 KB</td></tr>
+<tr><td>3000*</td><td>300</td><td>–</td><td>502 (84)</td><td>0.60</td><td>72 MB / 0.23 MB</td></tr>
+<tr><td>4000*</td><td>575</td><td>–</td><td>693 (84)</td><td>0.83</td><td>128 MB / 0.27 MB</td></tr>
+<tr><td>6000*</td><td>1400</td><td>–</td><td>1042 (84)</td><td><b>1.34</b></td><td>288 MB / 0.37 MB</td></tr>
+<tr><td>8000*</td><td>3161</td><td>–</td><td>1364 (84)</td><td><b>2.32</b></td><td>512 MB / 0.47 MB</td></tr>
+</table>
+<p class="small">* 실험 5 (시드 3개). 표준편차는 대부분 평균의 5% 이내이며, 실험 1의 $d=200$만 GD ±35%, CG ±37%로 컸다 (summary.md 참고).</p>
+<figure><img src="../results/figures/exp5_crossover.png" style="width:78%">
+<figcaption>그림 1. $n=10^4,\kappa=100$에서 $d$에 따른 시간 (로그-로그). 점선은 연산량 이론의 교차점 $d\approx170$.</figcaption></figure>
+<ul>
+<li><b>교차점:</b> CG가 정규방정식을 이기는 지점은 로그 보간으로 <b>$d\approx4700$</b>. 연산량 이론($d\approx170$)보다 약 28배 뒤.</li>
+<li><b>GD는 전 구간에서 가장 느렸다.</b> $\kappa=100$에서도 반복이 CG의 약 15배($\approx1250$ 대 $84$)라 교차가 일어날 여지가 없다.</li>
+<li><b>시간의 $d$ 기울기</b> ($d\ge200$): 정규방정식 1.85 (이론 $nd^2$ → 2), GD 1.27, CG 1.30 (이론 1). CG 반복 수는 $d$와 거의 무관($76\to84$)한데 기울기가 1보다 크다 → 4.3·5.2절.</li>
+<li><b>메모리:</b> 정규방정식의 tracemalloc 값은 정확히 $8d^2$ 바이트($A$ 하나, 기울기 1.98, $d=2000$에서 32.0 MB). LU 복사본까지 합친 실제 추가 메모리는 약 $16d^2$다 (5.5절에서 확인). 반복법은 $d=50$에서도 약 84 KB인데, 이는 $Xp$ (길이 $n=10^4$) 임시 벡터 $8n=80$ KB 때문이다 → 반복법의 추가 메모리는 $O(d)$가 아니라 <b>$O(n+d)$</b>.</li>
+</ul>
+
+<h3>4.2 실험 2: 조건수 $\kappa$ — 반복 수</h3>
+<table>
+<tr><th>$\kappa$</th><th>NE [ms]</th><th>GD 반복</th><th>이론 $\kappa\ln\frac1\varepsilon$</th><th>보정 $\kappa\ln\frac{1}{\varepsilon\kappa}$</th><th>GD [s]</th><th>CG 반복</th><th>이론 $\frac{\sqrt\kappa}{2}\ln\frac2\varepsilon$</th><th>CG [ms]</th></tr>
+<tr><td>$10^1$</td><td>0.60</td><td>140 ± 4</td><td>184</td><td>161</td><td>0.009</td><td>28</td><td>30</td><td>1.0</td></tr>
+<tr><td>$10^2$</td><td>0.59</td><td>1233 ± 57</td><td>1842</td><td>1382</td><td>0.047</td><td>76</td><td>96</td><td>2.8</td></tr>
+<tr><td>$10^3$</td><td>0.60</td><td>10193 ± 627</td><td>18421</td><td>11513</td><td>0.37</td><td>181</td><td>302</td><td>6.6</td></tr>
+<tr><td>$10^4$</td><td>0.61</td><td>80356 ± 6376</td><td>184207</td><td>92103</td><td>2.9</td><td>401</td><td>956</td><td>14.7</td></tr>
+<tr><td>$10^5$</td><td>0.61</td><td>591880 ± 61354</td><td>1842068</td><td>690776</td><td>21.4</td><td><b>822</b></td><td>3022</td><td>29.9</td></tr>
+</table>
+<figure><img src="../results/figures/exp2_kappa.png" style="width:100%">
+<figcaption>그림 2. 왼쪽: 반복 수와 이론선, 회색 점선은 CG의 이론상 최대 반복 수 $d=200$. 오른쪽: 시간.</figcaption></figure>
+<ul>
+<li><b>정규방정식:</b> 시간 0.60 ms로 $\kappa$와 무관, 잔차도 $10^{-15}$ 수준으로 유지 (예측대로).</li>
+<li><b>GD:</b> 로그-로그 기울기 <b>0.907</b> (예측 1). 반복 수는 단순 이론 $\kappa\ln(1/\varepsilon)$의 32~76%였고, 보정식 $\kappa\ln\frac{1}{\varepsilon\kappa}$과는 86~89%로 잘 맞았다 (5.3절).</li>
+<li><b>CG:</b> 기울기 <b>0.37</b> (예측 0.5; $\kappa\le10^2$ 구간만 보면 0.44). 반복 수가 이론 상한보다 훨씬 적었다. 그런데 $\kappa\ge10^4$에서는 <b>이론상 최대치 $d=200$을 넘어</b> $\kappa=10^5$에서 822번 돌았다 (5.4절).</li>
+<li>시간 차이: $\kappa=10^5$에서 GD 21.4 s, CG 30 ms, 정규방정식 0.6 ms. GD/CG 반복 비율은 5번 → 720번으로 커졌다.</li>
+</ul>
+
+<h3>4.3 실험 3: 데이터 수 $n$</h3>
+<table>
+<tr><th>$n$</th><th>NE [ms]</th><th>GD [ms]</th><th>CG [ms]</th><th>반복 1번 [µs] GD / CG</th><th>$X$ 크기</th></tr>
+<tr><td>1,000</td><td>0.22</td><td>14</td><td>0.87</td><td>11 / 11</td><td>1.6 MB</td></tr>
+<tr><td>3,000</td><td>0.41</td><td>33</td><td>2.0</td><td>26 / 26</td><td>4.8 MB</td></tr>
+<tr><td>10,000</td><td>1.41</td><td>180</td><td>12.3</td><td>143 / 162</td><td>16 MB</td></tr>
+<tr><td>30,000</td><td>4.01</td><td>1671</td><td>92.9</td><td><b>1314 / 1223</b></td><td>48 MB</td></tr>
+<tr><td>100,000</td><td>13.1</td><td>5388</td><td>311</td><td>4357 / 4080</td><td>160 MB</td></tr>
+</table>
+<figure><img src="../results/figures/exp3_n.png" style="width:62%">
+<figcaption>그림 3. $d=200,\kappa=100$에서 $n$에 따른 시간.</figcaption></figure>
+<ul>
+<li>반복 수는 $n$과 무관 (GD ≈ 1260, CG = 76) — 반복 수는 $\kappa$만의 함수라는 이론과 일치.</li>
+<li>정규방정식 시간의 $n$ 기울기 0.91 (큰 $n$에서 0.97) → <b>$n$에 선형</b> (예측대로).</li>
+<li>GD·CG는 기울기 1.35~1.47로 선형보다 가팔랐다. 반복 1번 시간이 $n=10^4\to3\times10^4$에서 3배가 아니라 <b>약 8~9배</b> 뛰었고, 그 뒤 $3\times10^4\to10^5$에서는 다시 약 3.3배(선형)로 돌아왔다. $X$가 약 16 MB를 넘는 순간 캐시에서 메인 메모리로 밀려나는 "캐시 절벽"으로 해석된다 (5.2절).</li>
+</ul>
+
+<h3>4.4 실험 4: GD 학습률과 발산 경계</h3>
+<table>
+<tr><th>$\eta$</th><th>반복 수</th><th>시간 [ms]</th><th>최종 상대 잔차</th><th>이론 $\max_i|1-\eta\lambda_i|$</th></tr>
+<tr><td>$0.5/L$</td><td>20391 ± 1254</td><td>728</td><td>$1.0\times10^{-8}$</td><td>0.9995</td></tr>
+<tr><td>$1.0/L$</td><td>10193 ± 627</td><td>365</td><td>$1.0\times10^{-8}$</td><td>0.9990</td></tr>
+<tr><td>$1.9/L$</td><td>5363 ± 330</td><td>194</td><td>$1.0\times10^{-8}$</td><td>0.9981</td></tr>
+<tr><td>$2.1/L$</td><td>308 ± 8 (발산 감지)</td><td>15</td><td>$1.1\times10^{12}$</td><td><b>1.1</b></td></tr>
+</table>
+<figure><img src="../results/figures/exp4_convergence.png" style="width:100%">
+<figcaption>그림 4. 시드 0에서 반복별 상대 잔차. 왼쪽: GD 학습률별, 오른쪽: CG ($d=200$ 표시).</figcaption></figure>
+<ul>
+<li>$\eta<2/L$인 세 경우는 모두 수렴, $2.1/L$은 발산 → <b>경계 $2/L$ 확인</b>.</li>
+<li>반복 수는 $\eta$에 거의 반비례: $0.5/L$은 $1/L$의 2.00배, $1.9/L$은 $1/L$의 0.526배 ($1/1.9=0.526$). 느린 방향의 비율이 $1-\eta\lambda_{\min}$이고 $\ln(1-\eta\lambda_{\min})\approx-\eta\lambda_{\min}$이기 때문이다.</li>
+<li>발산 속도도 이론대로였다. 가장 빠른 방향이 매번 $|1-2.1|=1.1$배로 커지므로, 잔차가 1에서 $10^{12}$이 되는 데 $\ln10^{12}/\ln1.1\approx290$번이 필요한데, 실측은 308번이었다.</li>
+</ul>
+
+<!-- ============================================================ 5 -->
+<h2 class="pb">5. 이론과 실측의 어긋남 해석</h2>
+<h3>5.1 교차점이 28배 뒤로 밀린 이유: flop은 시간이 아니다</h3>
+<p>연산량 이론은 "flop 하나의 비용이 어디서나 같다"고 가정한다. 그러나 정규방정식의 핵심인 $X^\top X$는 <b>행렬-행렬 곱(GEMM)</b>이고,
+반복법의 $X^\top(Xp)$는 <b>행렬-벡터 곱(GEMV)</b>이다. 두 연산을 같은 기기에서 직접 재 보았다 (<code>src/analyze.py</code>).</p>
+<div style="display:flex; gap:14px; align-items:center">
+<div style="flex:1">
+<table>
+<tr><th>$d$ ($n=10^4$)</th><th>GEMM GFLOP/s</th><th>GEMV GFLOP/s</th><th>비율</th></tr>
+<tr><td>50</td><td>471</td><td>56</td><td>8×</td></tr>
+<tr><td>200</td><td>703</td><td>45</td><td>16×</td></tr>
+<tr><td>500</td><td>951</td><td>20</td><td>47×</td></tr>
+<tr><td>1000</td><td>1039</td><td>20</td><td>52×</td></tr>
+<tr><td>2000</td><td>973</td><td>21</td><td>47×</td></tr>
+</table></div>
+<div style="flex:1"><figure style="margin:0"><img src="../results/figures/blas_throughput.png">
+<figcaption>그림 5. BLAS 처리량 (같은 flop 기준).</figcaption></figure></div>
+</div>
+<p>GEMM은 $X$의 한 원소를 캐시에 올려 $d$번 재사용하므로 연산 장치를 거의 다 쓰고(약 1 TFLOP/s),
+GEMV는 원소 하나를 읽고 곱셈 1번만 하므로 <b>메모리 대역폭</b>에 묶인다. 같은 flop이 약 50배 비싸다.</p>
+<p><b>GEMM이 1 TFLOP/s나 나오는 이유 (확인):</b> BLAS 스레드를 1개로 제한해도(<code>VECLIB_MAXIMUM_THREADS=1</code>) $X^\top X$ ($n=10^4, d=1000$)가
+<b>802 GFLOP/s</b>였다 (4개 968, 10개 1033). 일반 벡터 연산(NEON)으로는 코어 하나가 FP64 기준 사이클당 최대 16 flop
+(128비트 FMA 파이프 4개 × double 2개 × 2 flop)이라, 클럭을 5 GHz로 넉넉히 잡아도 80 GFLOP/s를 넘을 수 없다.
+10배 이상 차이 나므로 Accelerate는 GEMM에 칩의 <b>행렬 전용 유닛(ARM SME)</b>을 쓰고 있다. 이 칩이 SME와 FP64 행렬 연산을 지원한다는 것도
+<code>sysctl hw.optional.arm.FEAT_SME_F64F64 = 1</code>로 확인했다 (<code>src/verify_claims.py</code>). 반면 GEMV는 행렬 유닛을 써도 메모리 읽기가 병목이라 이득이 없다.</p>
+<p>
+이 처리량 $G$를 넣어 모델을 보정하면</p>
+$$T_{\text{NE}}\approx\frac{2nd^2}{G_{\text{GEMM}}}+\frac{\tfrac23d^3}{G_{\text{LU}}}$$
+$$T_{\text{CG}}\approx K\cdot\frac{4nd}{G_{\text{GEMV}}}$$
+<p>$d^3$ 항을 무시하고 두 식을 같게 놓으면</p>
+$$\frac{2nd^2}{G_{\text{GEMM}}}=\frac{4ndK}{G_{\text{GEMV}}}$$
+$$d=2K\cdot\frac{G_{\text{GEMM}}}{G_{\text{GEMV}}}$$
+$$d\approx2\times84\times50\approx8400$$
+<p>LU 항($\tfrac23d^3$)은 정규방정식 쪽 시간을 늘려 교차점을 앞당기므로 실제 교차점은 이보다 앞에 온다 — 실측 4700과 같은 자릿수다.
+보정 모델로 $d=6000$을 검산하면 CG는 $84\times4\times10^4\times6000/(20\times10^9)\approx1.0$ s (실측 1.04 s)로 거의 정확했다.
+<b>결론: 점근 복잡도는 "어느 쪽이 결국 이기나"를 알려 주지만, "어디서 이기나"는 연산 종류별 하드웨어 효율이 정한다.</b>
+중간 제출 때 "BLAS 때문에 교차점이 뒤로 밀릴 것"이라고 예상했는데, 방향은 맞았고 크기(약 28배)는 예상보다 훨씬 컸다.</p>
+
+<h3>5.2 반복법 시간이 $n$, $d$에 선형보다 빨리 늘어난 이유: 캐시 절벽</h3>
+<p>반복 1번은 $X$ 전체를 두 번 읽는다. 실험 3에서 반복 1번 시간을 읽은 바이트 수로 나누면</p>
+<ul>
+<li>$n=10^4$ ($X$=16 MB): $2\times16\text{ MB}/143\,\mu s\approx224$ GB/s</li>
+<li>$n=3\times10^4$ ($X$=48 MB): $2\times48\text{ MB}/1314\,\mu s\approx73$ GB/s</li>
+<li>$n=10^5$ ($X$=160 MB): $2\times160\text{ MB}/4357\,\mu s\approx73$ GB/s</li>
+</ul>
+<p>16 MB까지는 칩 안의 캐시에서 읽고, 그 위로는 메인 메모리 대역폭(약 73 GB/s로 일정)에 묶인다.
+<b>캐시 크기 확인:</b> <code>sysctl hw.perflevel0.l2cachesize</code> = 16,777,216 바이트, 즉 성능 코어 4개가 공유하는 <b>L2 캐시가 정확히 16 MiB</b>다
+(효율 코어 6개의 L2는 6 MiB). $n=10^4, d=200$의 $X$는 $8\times10^4\times200=16{,}000{,}000$ 바이트로 L2에 딱 들어가고, $n=3\times10^4$의 48 MB는 들어가지 않는다.
+절벽이 생긴 위치가 L2 크기와 정확히 맞는다.
+그래서 문제 크기가 이 경계를 지나는 구간에서만 기울기가 1보다 커지고, 경계를 지나면 다시 선형이 된다.
+실험 1에서 $d$ 기울기가 1.3이었던 것도 같은 이유다 ($d=200$에서 16 MB, $d=500$에서 40 MB).
+정규방정식(GEMM)은 블록 단위로 캐시를 재사용하므로 이 절벽을 거의 겪지 않는다 ($n$ 기울기 0.97).</p>
+
+<h3>5.3 GD 반복 수가 이론보다 적고 기울기가 1보다 작은 이유: 정지 기준</h3>
+<p>이론 $K\approx\kappa\ln(1/\varepsilon)$는 <b>오차</b> $e$를 $\varepsilon$배로 줄이는 반복 수다. 그런데 실험의 정지 기준은 <b>잔차</b> $r=b-A\theta=-Ae$로 쟀다.
+고유방향 $i$의 성분으로 쓰면</p>
+$$r_i^{(k)}=\lambda_i(1-\eta\lambda_i)^k\,e_i^{(0)}$$
+<p>가장 느린 방향($\lambda_{\min}=1$)의 잔차는 $\lambda_{\min}$이 곱해져 처음부터 작고, 분모 $\lVert b\rVert$는 큰 고윳값($\approx\kappa$) 성분이 지배한다.
+즉 상대 잔차 기준 $\varepsilon$는 오차 기준으로 대략 $\varepsilon\kappa$와 같다. $\eta=1/L$이면 느린 방향의 비율이 $1-1/\kappa$이므로</p>
+$$\left(1-\tfrac1\kappa\right)^K\approx\varepsilon\kappa$$
+$$K\approx\kappa\ln\frac{1}{\varepsilon\kappa}$$
+<p>이 보정식은 실측의 86~89%로 다섯 $\kappa$ 모두에서 일관되게 맞았다. 로그-로그 기울기도 설명된다:</p>
+$$\frac{d\ln K}{d\ln\kappa}=1-\frac{1}{\ln\frac{1}{\varepsilon\kappa}}$$
+<p>$\kappa=10^3$ 근처에서 $1-1/11.5\approx0.91$로, 실측 기울기 0.907과 일치한다.</p>
+<p><b>남은 6~11% 차이 확인:</b> $X^\top X$를 고윳값 분해해 $\lVert r_k\rVert=\lVert\sum_i c_i(1-\eta\lambda_i)^k q_i\rVert$ ($c_i$: $b$의 고유 성분)를 직접 계산하면,
+처음으로 $\le\varepsilon\lVert b\rVert$가 되는 $k$가 실측 반복 수와 <b>정확히 같다</b> (시드 0, $\kappa=10^1\sim10^4$에서 145, 1295, 10850, 87038 모두 일치).
+즉 차이는 반올림 오차가 아니라 보정식의 근사에서 온다. 보정식은 "느린 성분이 $\lVert b\rVert/\kappa$ 하나"라고 가정했는데, 실제로는 서로 반대 방향인 두 효과가 있다.</p>
+<table>
+<tr><th>$\kappa$</th><th>정확 계산 (= 실측)</th><th>가장 느린 성분 1개만</th><th>느린 성분 10개</th><th>보정식</th><th>$\lVert b\rVert/(\kappa\,|c_{\min}|)$</th></tr>
+<tr><td>$10^1$</td><td>145</td><td>130</td><td>145</td><td>161</td><td>12.9</td></tr>
+<tr><td>$10^2$</td><td>1295</td><td>1159</td><td>1295</td><td>1382</td><td>8.8</td></tr>
+<tr><td>$10^3$</td><td>10850</td><td>9576</td><td>10850</td><td>11513</td><td>6.9</td></tr>
+<tr><td>$10^4$</td><td>87038</td><td>74530</td><td>87036</td><td>92103</td><td>5.8</td></tr>
+</table>
+<ul>
+<li><b>줄이는 쪽:</b> 실제 $\lVert b\rVert$는 $\kappa\,|c_{\min}|$보다 6~13배 크다 (이번 시드에서 $|\theta^*_{\min}|=0.49$로 작았고, $\lVert b\rVert$에는 큰 고윳값 성분이 여러 개 더해짐). 기준이 그만큼 느슨해져 $K$가 $\kappa\ln(6\sim13)$만큼 줄어든다 → 성분 1개만 쓴 열.</li>
+<li><b>늘리는 쪽:</b> 고윳값을 로그 간격으로 놓았기 때문에 $\lambda_{\min}=1$ 근처에 1.012, 1.023, …처럼 거의 같은 속도로 줄어드는 성분이 여럿 있다. 가장 느린 <b>10개</b>만 넣어도 정확 계산과 같아진다.</li>
+</ul>
+<p>두 효과를 합친 결과가 보정식보다 6~11% 적은 실측값이다 (<code>src/verify_claims.py gd</code>).</p>
+
+<h3>5.4 CG: 상한보다 훨씬 빠르지만, $d$번을 넘기도 한다</h3>
+<ul>
+<li><b>상한보다 빠른 이유:</b> $\frac{\sqrt\kappa}{2}\ln\frac2\varepsilon$는 고윳값 분포를 모를 때의 최악 상한(체비쇼프 다항식 근사)이다.
+CG는 실제 고윳값 분포에 맞는 다항식을 고르므로 보통 이보다 빠르고, 5.3절과 같은 이유로 잔차 기준이 오차 기준보다 느슨한 것도 반복 수를 줄인다. 그래서 기울기도 0.5보다 작았다 (0.37).</li>
+<li><b>$d$번을 넘은 이유:</b> "최대 $d$번"은 정확한 산술에서만 성립한다. 부동소수점에서는 $p_i^\top Ap_j=0$이 점점 깨져(켤레성 손실) 이미 줄인 방향을 다시 고쳐야 한다.
+$\kappa=10^4, 10^5$에서 401번, 822번으로 $d=200$의 2~4배를 썼다. 그림 4 오른쪽에서도 $d=200$을 지나서도 잔차가 계속 줄어드는 모습이 보인다.
+반복 상한을 $d$로 두었다면 $\kappa\ge10^4$에서 수렴하지 못했을 것이다 — 상한을 $10d$로 잡은 것이 결과적으로 필요했다.</li>
+<li>중간 제출 때 "$\kappa\ge10^3$이면 CG가 $d$번 상한에 먼저 걸려 기울기가 꺾일 수 있다"고 예상했는데, 실제로는 상한에 걸리지 않고 반올림 때문에 오히려 그 위로 계속 갔다.</li>
+</ul>
+
+<h3>5.5 메모리 측정의 한계</h3>
+<p>tracemalloc은 NumPy가 배열을 만들 때 보고하는 할당만 잡는다. 정규방정식의 측정값은 $8d^2$와 정확히 일치했는데, 이것은 $A=X^\top X$ <b>한 개</b>뿐이다.</p>
+<p><b>확인:</b> $d=4000$에서 이미 만들어 둔 $A$로 <code>np.linalg.solve</code>만 실행하면 tracemalloc 최대값은 <b>0.03 MB</b>였지만,
+프로세스의 실제 최대 메모리(RSS)는 <b>128 MB = 정확히 $8d^2$</b> 늘었다. LAPACK이 LU 분해를 위해 $A$를 통째로 복사하는 작업 공간이
+NumPy 바깥(<code>malloc</code>)에서 할당되어 tracemalloc에 보이지 않는 것이다. 따라서 <b>정규방정식의 실제 추가 메모리는 $A$와 그 LU 복사본을 합친 약 $16d^2$ 바이트</b>
+(예: $d=8000$에서 약 1 GB)이고, 표의 tracemalloc 값은 그 절반만 보여 준다. 차수 $O(d^2)$라는 결론은 그대로다.</p>
+<p>반복법은 NumPy 연산만 쓰므로 측정값이 실제와 같다. 다만 이론 $O(d)$가 아니라 $O(n+d)$였다 — 처음 계획에서 $Xp$ 임시 벡터(길이 $n$)를 빠뜨렸던 것이다.
+참고로 실험 5 전체 실행의 최대 메모리는 7.0 GB였다 (<code>/usr/bin/time -l</code>). 대부분 데이터 생성($n\times d$ QR, $d=8000$에서 행렬 하나가 640 MB)과 정규방정식의 $16d^2$에서 나온다.</p>
+
+<h3>5.6 보조 확인: 희소 행렬에서는 교차점이 앞당겨진다</h3>
+<p>CG의 반복 1번 비용은 $X$의 0이 아닌 원소 수(nnz)에 비례하지만, 정규방정식은 $X^\top X$가 거의 밀집이 되면 여전히 $O(d^3)$ LU가 필요하다.
+그래서 $X$가 희소하면 CG가 더 일찍 이길 것이라고 예상했고, 이를 직접 확인했다 (<code>src/sparse_check.py</code>, SciPy 1.18.1 희소 행렬, 같은 NumPy 2.4.5, 시드 0, 3번 중 최소 시간).
+$n=20000$, 원소의 0.5%만 0이 아닌 무작위 $X$를 만들고, 본 실험의 $\kappa=100$과 비슷하게 하려고 열 크기를 1~10배로 벌렸다.</p>
+<table>
+<tr><th>$d$</th><th>nnz</th><th>$\kappa(X^\top X)$</th><th>정규방정식 [ms]</th><th>CG 희소 [ms] (반복)</th><th>CG 밀집 $X$ [ms]</th><th>NE/CG 시간비</th></tr>
+<tr><td>500</td><td>50,000</td><td>153</td><td>2.6</td><td>6.3 (102)</td><td>200</td><td>0.41</td></tr>
+<tr><td>1000</td><td>100,000</td><td>242</td><td>8.5</td><td>14.7 (121)</td><td>472</td><td>0.58</td></tr>
+<tr><td>2000</td><td>200,000</td><td>233</td><td>41.1</td><td>27.5 (127)</td><td>987</td><td><b>1.49</b></td></tr>
+<tr><td>4000</td><td>400,000</td><td>349</td><td>275.2</td><td>58.3 (148)</td><td>2299</td><td><b>4.72</b></td></tr>
+</table>
+<p>모든 경우 상대 잔차는 정규방정식 $\le4.3\times10^{-15}$, CG $\le9.9\times10^{-9}$. 교차점은 <b>$d=1000\sim2000$ 사이</b>로, 밀집 행렬(4700)보다 2~5배 앞당겨졌다.
+같은 행렬을 밀집 배열로 바꿔 CG를 돌리면 희소 CG보다 30~40배 느려, 이득이 희소 행렬-벡터곱에서 온다는 것도 확인된다.
+열 스케일링 없이 만든 경우($\kappa=4\sim8$, CG 16~25번)에는 $d=500$부터 이미 CG가 빨랐다 (<code>results/sparse_check.txt</code>).
+단, $\kappa$를 본 실험처럼 정확히 맞추지는 못했고 시드도 1개뿐이라 보조 확인으로만 쓴다.</p>
+
+<!-- ============================================================ 6 -->
+<h2>6. 장단점과 결론</h2>
+<table>
+<tr><th></th><th>정규방정식</th><th>GD</th><th>CG</th></tr>
+<tr><td class="l">시간 (이 기기)</td><td>$d\lesssim4700$에서 가장 빠름</td><td>전 구간 가장 느림</td><td>$d\gtrsim4700$에서 가장 빠름</td></tr>
+<tr><td class="l">$\kappa$ 민감도</td><td>없음</td><td>반복 $\propto\kappa^{0.9}$</td><td>반복 $\propto\kappa^{0.4}$</td></tr>
+<tr><td class="l">추가 메모리</td><td>약 $16d^2$ ($A$ + LU 복사본, $d=8000$에서 약 1 GB)</td><td>$O(n+d)$</td><td>$O(n+d)$</td></tr>
+<tr><td class="l">정확도</td><td>잔차 $10^{-15}$</td><td>정지 기준까지 ($10^{-8}$)</td><td>정지 기준까지 ($10^{-8}$)</td></tr>
+<tr><td class="l">조정할 값</td><td>없음</td><td>학습률 ($L$ 추정 필요, $2/L$ 넘으면 발산)</td><td>없음 (반복 상한만)</td></tr>
+</table>
+<p><b>본인 판단:</b></p>
+<ul>
+<li><b>$d$가 수천 이하이고 $X^\top X$가 메모리에 들어가면 정규방정식이 정답이다.</b> 조건수와 무관하고 조정할 값도 없다.
+이론상 $O(d^3)$라 불리해 보이지만, 그 연산이 하드웨어가 가장 잘하는 GEMM이라는 점이 결정적이었다.</li>
+<li><b>$d$가 매우 크거나 $d^2$ 메모리를 감당할 수 없을 때, 또는 $X$가 희소할 때 CG.</b> 희소 행렬에서는 교차점이 $d\approx1000\sim2000$으로 앞당겨지는 것을 확인했다 (5.6절).</li>
+<li><b>GD는 이 문제에서 이점이 없다.</b> CG와 반복 1번 비용이 같고 메모리도 같은데 반복 수가 15~720배 많다.
+GD가 의미 있는 곳은 데이터를 한 번에 볼 수 없는 경우(확률적 경사하강법, 미니배치)나 손실이 2차식이 아닌 경우다.</li>
+<li>정규방정식의 약점인 "조건수 제곱" 문제($X$의 조건수가 $\sqrt\kappa$인데 $X^\top X$를 만들면 $\kappa$가 됨)는 이번 범위($\kappa\le10^5$, 상대 오차 $\approx\kappa\cdot10^{-16}$)에서는 드러나지 않았다.</li>
+</ul>
+
+<h2>7. 한계와 발전 방향</h2>
+<ul>
+<li><b>한 기기 결과:</b> 교차점 4700은 Apple M5 + Accelerate의 GEMM/GEMV 비율에 묶인 값이다. 다른 BLAS(OpenBLAS, MKL)나 스레드 수(<code>VECLIB_MAXIMUM_THREADS</code>)를 바꿔 같은 보정 모델이 맞는지 확인하고 싶다.</li>
+<li><b>큰 $\kappa$에서 정확도 비교:</b> $\kappa(X^\top X)\ge10^{10}$ 근처에서는 정규방정식의 정확도가 무너지고 QR 기반 <code>lstsq</code>가 필요해질 것이다. 상대 잔차 대신 $\lVert\theta-\theta_{\text{ref}}\rVert$를 기준으로 비교를 넓힐 수 있다.</li>
+<li><b>전처리 CG:</b> 대각(야코비) 전처리 등으로 실효 $\kappa$를 줄이면 CG의 반복 수가 더 줄어든다.</li>
+<li><b>희소 행렬 본 실험:</b> 5.6절의 보조 확인은 시드 1개, 무작위 희소 패턴, 열 스케일링으로 만든 $\kappa$(150~350)라 $\kappa$를 정확히 맞추지 못했다. 실제 텍스트·추천 데이터로 시드를 늘려 확인할 수 있다.</li>
+<li><b>로지스틱 회귀 + 뉴턴법:</b> 손실이 2차식이 아니면 뉴턴법이 한 번에 끝나지 않으므로, 원래 계획했던 뉴턴법 대 GD 대 CG(뉴턴-CG) 비교가 의미를 갖는다.</li>
+</ul>
+
+<!-- ============================================================ 8 -->
+<h2 class="pb">8. 재현 방법</h2>
+<pre>git clone https://github.com/silvpear654/algorithms-project.git
+cd algorithms-project                           # 또는 제출한 압축 파일을 푼 폴더
+pip install -r requirements.txt                 # numpy, matplotlib
+
+python src/data.py                              # κ 확인 → kappa = 1000.0000
+python src/methods.py                           # 세 방법 정확도 확인 (상대 잔차 ≤ 1e-8)
+python src/benchmark.py --exp all --quick       # 작은 크기로 흐름 확인 (약 1초)
+python src/benchmark.py --exp all               # 실험 1~4 (이 기기에서 4분 1초)
+python src/benchmark.py --exp 5 --seeds 0 1 2   # 확장 실험 5 (2분 44초, 최대 메모리 7.0 GB)
+python src/analyze.py                           # 그래프 results/figures/, 요약 results/summary.md
+python src/verify_claims.py                     # SME·LAPACK 메모리·GD 정확 계산·결정성 확인
+pip install scipy && python src/sparse_check.py # 희소 행렬 보조 확인 (scipy 필요)
+bash report/build_pdf.sh                        # 이 보고서 PDF (Google Chrome 필요)</pre>
+<table>
+<tr><th class="l">파일</th><th class="l">내용</th></tr>
+<tr><td class="l"><code>src/data.py</code></td><td class="l">$\kappa$를 정확히 맞춘 데이터 생성</td></tr>
+<tr><td class="l"><code>src/methods.py</code></td><td class="l">정규방정식, GD(거듭제곱법 $L$ 추정 + 발산 감지), CG, 상대 잔차</td></tr>
+<tr><td class="l"><code>src/benchmark.py</code></td><td class="l">실험 1~5 실행 → <code>results/exp*.csv</code> (첫 줄에 Python·NumPy·기기 정보)</td></tr>
+<tr><td class="l"><code>src/analyze.py</code></td><td class="l">평균·표준편차, 로그-로그 기울기, 교차점 보간, 수렴 곡선, BLAS 처리량 측정</td></tr>
+<tr><td class="l"><code>src/verify_claims.py</code></td><td class="l">5장의 보충 확인 (SME 처리량, LAPACK 작업 공간, GD 스펙트럼 계산, 결정성) → <code>results/verify_claims.txt</code></td></tr>
+<tr><td class="l"><code>src/sparse_check.py</code></td><td class="l">희소 행렬 보조 확인 (scipy) → <code>results/sparse_check.txt</code></td></tr>
+<tr><td class="l"><code>slides/</code></td><td class="l">중간 제출 슬라이드와 등고선 그림 스크립트</td></tr>
+</table>
+<p>실행 시간은 기기에 따라 다르지만, 반복 수·잔차·메모리는 시드가 같으면 같은 값이 나온다.
+<b>확인:</b> 같은 입력으로 CG를 10번, GD를 3번 돌리면 반복 수와 $\theta$가 <b>비트 단위까지 똑같았다</b>. BLAS 스레드 수를 1개와 10개로 바꿔도 CG 반복 수는 407번으로 같았고,
+이 값은 본 실험 CSV에 기록된 값(실험 2, $\kappa=10^4$, 시드 0)과도 일치했다. 다른 기기나 BLAS에서는 덧셈 순서가 달라 반복 수가 조금 달라질 수 있다.</p>
+
+<h2>9. AI 사용 내역과 출처</h2>
+<h3>AI 사용</h3>
+<table>
+<tr><th>도구</th><th class="l">물어본 것</th><th class="l">받은 것 / 내가 한 것</th></tr>
+<tr><td>Claude (claude.ai)</td><td class="l">주제 후보, 뉴턴법을 세 번째 방법으로 써도 되는지, GD·CG 수렴 이론 유도, 실험 설계</td><td class="l">뉴턴법이 2차 손실에서 한 번에 끝난다는 지적 → CG로 교체. $\alpha,\beta$ 유도와 반복 수 공식 정리, 코드 뼈대. 유도는 직접 다시 따라가며 확인</td></tr>
+<tr><td>Claude Code</td><td class="l">중간 슬라이드 제작, 코드를 저장소 구조로 정리, 실험 실행, 결과 분석, 보고서 초안</td><td class="l">src/ 코드와 분석 스크립트, 실험 실행, 그래프, 보고서 초안. 측정 방식(시간·메모리 분리 측정), 정지 기준 보정식(5.3절)과 처리량 보정 모델(5.1절)은 AI와 대화하며 정리</td></tr>
+</table>
+<p class="small">남의 코드는 쓰지 않았다. CG는 표준 알고리즘(Hestenes–Stiefel)을 그대로 구현했고, $A$를 만들지 않도록 $Ap=X^\top(Xp)$로 바꾼 것만 다르다 (CGNR 형태).</p>
+<h3>참고 문헌</h3>
+<ol class="small">
+<li>J. Nocedal, S. J. Wright, <i>Numerical Optimization</i>, 2nd ed., Springer, 2006. (3장 경사법 수렴, 5장 켤레기울기법)</li>
+<li>J. R. Shewchuk, "An Introduction to the Conjugate Gradient Method Without the Agonizing Pain," CMU Tech. Report, 1994.</li>
+<li>G. H. Golub, C. F. Van Loan, <i>Matrix Computations</i>, 4th ed., Johns Hopkins Univ. Press, 2013. (정규방정식·LU 비용, 최소제곱의 조건수)</li>
+<li>A. Greenbaum, <i>Iterative Methods for Solving Linear Systems</i>, SIAM, 1997. (유한 정밀도에서의 CG)</li>
+<li>NumPy 문서: <code>numpy.linalg.solve</code>, <code>tracemalloc</code> (Python 표준 라이브러리) 문서.</li>
+<li>고급알고리즘 2026 프로젝트 안내, https://lec-algorithm.github.io/lecture/article/project-2026/</li>
+</ol>
+
+</body>
+</html>

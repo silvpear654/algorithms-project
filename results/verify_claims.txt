@@ -1,0 +1,25 @@
+## 1. GEMM 단일 스레드 처리량 (NEON 이론 최대치와 비교)
+- VECLIB_MAXIMUM_THREADS= 1: XᵀX (n=10000, d=1000) 801.8 GFLOP/s
+- VECLIB_MAXIMUM_THREADS= 4: XᵀX (n=10000, d=1000) 967.8 GFLOP/s
+- VECLIB_MAXIMUM_THREADS=10: XᵀX (n=10000, d=1000) 1033.4 GFLOP/s
+- 비교: NEON FP64 한 코어 이론 최대 = 16 flop/cycle × 클럭(≤ 4.6 GHz 가정) ≈ 74 GFLOP/s
+
+## 2. np.linalg.solve: tracemalloc 최대값 대 실제 RSS 증가
+- d=4000, 행렬 A 하나 = 8d² = 128 MB
+- tracemalloc 최대값: 0.03 MB
+- 최대 RSS 증가:      128 MB  (= 1.00 × 8d²)
+
+## 3. GD 반복 수: 실측 대 스펙트럼 정확 계산 대 보정식 κ ln(1/(εκ))
+| κ | 실측 (시드 0) | 정확 계산 | 보정식 | ln(‖b‖/(λ_min|c_min|)) | ln κ |
+|---|---|---|---|---|---|
+| 1e+01 | 145 | 145 | 161 | 4.86 | 2.30 |
+| 1e+02 | 1295 | 1295 | 1382 | 6.78 | 4.61 |
+| 1e+03 | 10850 | 10850 | 11513 | 8.84 | 6.91 |
+| 1e+04 | 87038 | 87038 | 92103 | 10.97 | 9.21 |
+
+## 4. 결정성: 같은 입력으로 여러 번 실행
+- CG 10회 (κ=1e4): 반복 수 [407], θ 비트 단위 동일: True
+- GD 3회 (κ=1e4): 반복 수 [87038], θ 비트 단위 동일: True
+- CG, VECLIB_MAXIMUM_THREADS= 1: 반복 수 407
+- CG, VECLIB_MAXIMUM_THREADS=10: 반복 수 407
+
